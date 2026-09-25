@@ -2,7 +2,10 @@
 
 **Live demo:** [surplus-to-shelter-pi.vercel.app](https://surplus-to-shelter-pi.vercel.app) · **Repo:** [github.com/p7yush/surplus-to-shelter](https://github.com/p7yush/surplus-to-shelter)
 
-All diagrams below are Mermaid and render directly on GitHub. A slide-ready PNG of the system diagram is at [`docs/architecture.png`](./architecture.png).
+All diagrams below are Mermaid and render directly on GitHub. Two are also exported as standalone vector files for slides and reports, so they scale to any size without going blurry:
+
+- [`docs/architecture.svg`](./architecture.svg) — the system diagram
+- [`docs/matching-pipeline.svg`](./matching-pipeline.svg) — the gate-before-rank pipeline
 
 ---
 

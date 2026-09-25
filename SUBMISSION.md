@@ -114,16 +114,7 @@ Tests worth noting, because they encode the safety rules rather than just chasin
 
 ## 4. Team contribution
 
-Solo submission — design, engineering, database, deployment and documentation by one person.
-
-<!-- TODO: replace the two placeholders below before submitting. -->
-
-| | |
-| --- | --- |
-| **Name** | `TODO — full name` |
-| **Enrollment number** | `TODO — enrollment number` |
-| **GitHub** | [@p7yush](https://github.com/p7yush) |
-| **Track** | A — NGO / Social Impact |
+Solo submission by [@p7yush](https://github.com/p7yush) on Track A — NGO / Social Impact. Design, engineering, database, deployment and documentation were all done by one person, so the breakdown below is by workstream rather than by contributor. Every commit in the repository is authored by the same account.
 
 | Workstream | What was done |
 | --- | --- |

@@ -1,26 +1,242 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --color-canvas: #05080b;
+  --color-surface: #0b1117;
+  --color-surface-2: #111a22;
+  --color-surface-3: #18242e;
+  --color-line: #1e2b37;
+  --color-line-strong: #2b3c4b;
+  --color-ink: #e8f0f7;
+  --color-muted: #8ba0b2;
+  --color-faint: #5d7386;
+
+  --color-brand: #34d399;
+  --color-brand-dim: #0f3b2e;
+  --color-sky-accent: #38bdf8;
+  --color-amber-accent: #fbbf24;
+  --color-rose-accent: #fb7185;
+  --color-violet-accent: #a78bfa;
+
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background:
+    radial-gradient(900px 500px at 12% -8%, rgba(52, 211, 153, 0.1), transparent 60%),
+    radial-gradient(800px 460px at 88% 0%, rgba(56, 189, 248, 0.08), transparent 62%),
+    var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: rgba(52, 211, 153, 0.28);
+}
+
+@layer components {
+  .card {
+    border-radius: 1rem;
+    border: 1px solid var(--color-line);
+    background: linear-gradient(
+      180deg,
+      rgba(17, 26, 34, 0.92),
+      rgba(11, 17, 23, 0.92)
+    );
+    backdrop-filter: blur(6px);
+  }
+
+  .card-tight {
+    border-radius: 0.75rem;
+    border: 1px solid var(--color-line);
+    background: rgba(17, 26, 34, 0.7);
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-line-strong);
+    padding: 0.15rem 0.6rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    border-radius: 0.6rem;
+    border: 1px solid var(--color-line-strong);
+    padding: 0.5rem 0.9rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--color-ink);
+    background: var(--color-surface-2);
+    cursor: pointer;
+    transition:
+      background 140ms ease,
+      border-color 140ms ease,
+      transform 140ms ease,
+      opacity 140ms ease;
+  }
+
+  .btn:hover:not(:disabled) {
+    background: var(--color-surface-3);
+    border-color: var(--color-brand);
+  }
+
+  .btn:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background: linear-gradient(180deg, #3ddfa5, #17b47f);
+    border-color: transparent;
+    color: #04231a;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background: linear-gradient(180deg, #55e9b4, #1cc78d);
+    border-color: transparent;
+  }
+
+  .btn-danger {
+    color: var(--color-rose-accent);
+    border-color: rgba(251, 113, 133, 0.35);
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background: rgba(251, 113, 133, 0.12);
+    border-color: var(--color-rose-accent);
+  }
+
+  .field {
+    width: 100%;
+    border-radius: 0.6rem;
+    border: 1px solid var(--color-line-strong);
+    background: rgba(5, 8, 11, 0.7);
+    padding: 0.55rem 0.7rem;
+    font-size: 0.85rem;
+    color: var(--color-ink);
+    outline: none;
+    transition:
+      border-color 140ms ease,
+      box-shadow 140ms ease;
+  }
+
+  .field:focus {
+    border-color: var(--color-brand);
+    box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.14);
+  }
+
+  .field-label {
+    display: block;
+    margin-bottom: 0.3rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+  }
+
+  .meter {
+    height: 0.45rem;
+    width: 100%;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.07);
+  }
+
+  .meter > span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+  }
+}
+
+.leaflet-container {
+  background: #0a1015 !important;
+  font-family: var(--font-sans);
+}
+
+.leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.88)
+    saturate(0.7);
+}
+
+.leaflet-bar,
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: var(--color-surface-2) !important;
+  color: var(--color-ink) !important;
+  border: 1px solid var(--color-line-strong) !important;
+  box-shadow: none !important;
+}
+
+.leaflet-bar a {
+  background: var(--color-surface-2) !important;
+  color: var(--color-ink) !important;
+  border-color: var(--color-line) !important;
+}
+
+.leaflet-popup-content {
+  margin: 0.6rem 0.75rem;
+  font-size: 0.78rem;
+}
+
+.leaflet-control-attribution {
+  background: rgba(5, 8, 11, 0.75) !important;
+  color: var(--color-faint) !important;
+}
+
+.leaflet-control-attribution a {
+  color: var(--color-muted) !important;
+}
+
+.pin {
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  border: 2px solid rgba(5, 8, 11, 0.85);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(251, 113, 133, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(251, 113, 133, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(251, 113, 133, 0);
+  }
+}
+
+.pulse {
+  animation: pulse-ring 1.8s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse {
+    animation: none;
+  }
 }

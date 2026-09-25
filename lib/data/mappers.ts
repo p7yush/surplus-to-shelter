@@ -34,8 +34,8 @@ export interface ShelterRow {
   accepted_food_types: FoodType[];
   preferred_food_types: FoodType[];
   has_refrigeration: boolean;
-  open_hour: number;
-  close_hour: number;
+  open_minute: number;
+  close_minute: number;
   people_served_daily: number;
   last_delivery_at: number | null;
 }
@@ -118,7 +118,7 @@ export function toShelter(row: ShelterRow): Shelter {
     acceptedFoodTypes: row.accepted_food_types ?? [],
     preferredFoodTypes: row.preferred_food_types ?? [],
     hasRefrigeration: row.has_refrigeration,
-    openHours: { open: row.open_hour, close: row.close_hour },
+    openHours: { open: row.open_minute, close: row.close_minute },
     peopleServedDaily: row.people_served_daily,
     lastDeliveryAt: row.last_delivery_at,
   };
@@ -137,8 +137,8 @@ export function fromShelter(shelter: Shelter): ShelterRow {
     accepted_food_types: shelter.acceptedFoodTypes,
     preferred_food_types: shelter.preferredFoodTypes,
     has_refrigeration: shelter.hasRefrigeration,
-    open_hour: shelter.openHours.open,
-    close_hour: shelter.openHours.close,
+    open_minute: shelter.openHours.open,
+    close_minute: shelter.openHours.close,
     people_served_daily: shelter.peopleServedDaily,
     last_delivery_at: shelter.lastDeliveryAt,
   };

@@ -55,8 +55,10 @@ create table shelters (
   accepted_food_types  food_type[] not null default '{}',
   preferred_food_types food_type[] not null default '{}',
   has_refrigeration    boolean     not null default false,
-  open_hour            int         not null check (open_hour between 0 and 24),
-  close_hour           int         not null check (close_hour between 0 and 24),
+  -- Intake hours are minutes since midnight, matching the domain model, so 08:00 is 480.
+  open_minute          int         not null check (open_minute between 0 and 1440),
+  close_minute         int         not null check (close_minute between 0 and 1440),
+  constraint shelters_hours_valid check (close_minute > open_minute),
   people_served_daily  int         not null default 0,
   last_delivery_at     bigint,
   updated_at           timestamptz not null default now()
@@ -198,9 +200,34 @@ create policy "demo write clock"    on demo_state    for all    to anon, authent
 -- Every connected browser subscribes to these tables, which is what makes the donor,
 -- recipient and driver views update each other across devices.
 -- ---------------------------------------------------------------------------
-alter publication supabase_realtime add table donors;
-alter publication supabase_realtime add table shelters;
-alter publication supabase_realtime add table drivers;
-alter publication supabase_realtime add table donations;
-alter publication supabase_realtime add table notifications;
-alter publication supabase_realtime add table demo_state;
+do $$
+declare
+  tbl text;
+  covers_all boolean;
+begin
+  select puballtables into covers_all from pg_publication where pubname = 'supabase_realtime';
+
+  if covers_all is null then
+    create publication supabase_realtime;
+    covers_all := false;
+  end if;
+
+  -- A FOR ALL TABLES publication already includes these, and adding to one is an error.
+  if covers_all then
+    return;
+  end if;
+
+  for tbl in select unnest(array[
+    'donors', 'shelters', 'drivers', 'donations', 'notifications', 'demo_state'
+  ])
+  loop
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = tbl
+    ) then
+      execute format('alter publication supabase_realtime add table public.%I', tbl);
+    end if;
+  end loop;
+end $$;

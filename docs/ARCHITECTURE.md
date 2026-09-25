@@ -45,10 +45,17 @@ flowchart TB
         D7["constants.ts<br/>every tuning value"]
     end
 
-    subgraph data["Data layer — the swappable seam"]
-        DL["localStorage snapshot"]
-        BC["BroadcastChannel<br/>cross-tab realtime"]
+    subgraph data["Data layer — one interface, two implementations"]
+        AD["DataAdapter interface<br/><code>lib/data/adapter.ts</code>"]
+        SA["Supabase adapter<br/>reference-diffed row writes<br/>+ realtime subscriptions"]
+        LA["localStorage adapter<br/>snapshot + BroadcastChannel<br/>offline fallback"]
         SD["seed.ts<br/>deterministic network"]
+    end
+
+    subgraph backend["Supabase — Postgres"]
+        PG[("donors · shelters · drivers<br/>donations · notifications<br/>demo_state")]
+        RT["Realtime<br/>logical replication"]
+        RLS["Row Level Security"]
     end
 
     views --> ui
@@ -58,17 +65,29 @@ flowchart TB
     D1 --> D6
     D2 --> D6
     D1 --> D7
-    ST <-->|"persist / hydrate"| DL
-    ST <-->|"publish / apply"| BC
-    SD -->|"first load"| ST
+    ST <-->|"persist / hydrate"| AD
+    AD --> SA
+    AD --> LA
+    SD -->|"seeds an empty database"| AD
+    SA <-->|"upsert / select"| PG
+    RT -->|"row changed on<br/>another device"| SA
+    PG --> RT
+    RLS -.->|"guards"| PG
 
     classDef pure fill:#064e3b,stroke:#34d399,color:#ecfdf5
     classDef seam fill:#3f2d12,stroke:#fbbf24,color:#fffbeb
+    classDef db fill:#0c2d48,stroke:#38bdf8,color:#e0f2fe
     class D1,D2,D3,D4,D5,D6,D7 pure
-    class DL,BC,SD seam
+    class AD,SA,LA,SD seam
+    class PG,RT,RLS db
 ```
 
-**Green = pure and tested. Amber = the deliberate hackathon seams**, each isolated to one module. Swapping `localStorage` for Postgres or the travel model for a live routing API is a single-file change because nothing else reaches past the boundary.
+**Green = pure and tested. Amber = the storage seam. Blue = managed infrastructure.**
+
+Two things this buys:
+
+1. **The database was added without touching the engine or the UI.** Every mutation already funnelled through a single `persist(snapshot)` call, so the Supabase adapter just compares each new snapshot against the last one and writes only the rows whose object reference changed. The store updates state immutably and reuses untouched rows, so marking a donation delivered writes one donation row, one shelter row and one notification — not a table rewrite. No store action, domain function or component changed.
+2. **The app still runs with no backend at all.** If the Supabase environment variables are absent, `createAdapter()` returns the localStorage adapter instead. That keeps the test suite dependency-free and keeps the demo alive if the venue wifi dies.
 
 ---
 
@@ -175,7 +194,9 @@ sequenceDiagram
     Store-->>Donor: broadcast — delivered, impact updated
 ```
 
-The `broadcast` arrows are real: every mutation publishes the full state over `BroadcastChannel`, so donor, recipient and driver windows update each other live without a server.
+The `broadcast` arrows are real. Each mutation upserts the changed rows into Postgres, and Supabase Realtime pushes them to every other subscribed device, so the donor's laptop, the recipient's phone and the driver's tablet update each other within a few hundred milliseconds.
+
+Realtime also echoes a device's *own* writes back to it. Replaying an echo is harmless because upserts are keyed by id, but if a newer local edit had already landed the UI would visibly flicker backwards — so the adapter fingerprints the rows it wrote and drops matching echoes.
 
 ---
 
@@ -266,12 +287,17 @@ flowchart LR
     GH -->|"connected project,<br/>auto-deploy on push"| VC["Vercel build<br/>Next.js 16 + Turbopack"]
     VC --> PROD["Production<br/>surplus-to-shelter-pi.vercel.app"]
     PROD --> CDN["Vercel edge CDN<br/>6 prerendered static routes"]
-    CDN --> USER["Browser<br/>state in localStorage,<br/>tabs synced via BroadcastChannel"]
-    OSM["OpenStreetMap tiles<br/>no API key"] --> USER
+    CDN --> B1["Laptop<br/>donor view"]
+    CDN --> B2["Phone<br/>recipient view"]
+    CDN --> B3["Tablet<br/>driver view"]
+    B1 <--> SB[("Supabase<br/>Postgres + Realtime")]
+    B2 <--> SB
+    B3 <--> SB
+    OSM["OpenStreetMap tiles<br/>no API key"] --> CDN
 
     subgraph gates["Quality gates before every push"]
         direction TB
-        T1["npm test · 49 unit tests"]
+        T1["npm test · 66 unit tests"]
         T2["npm run lint · ESLint clean"]
         T3["npm run build · type-checked"]
     end
@@ -279,7 +305,13 @@ flowchart LR
     gates --> GIT
 ```
 
-There is no backend to deploy. The whole app prerenders to static routes plus client JS, which is why cold-start latency is effectively zero — matching happens in the browser in under a millisecond, satisfying the brief's "near-instant for a good demo" constraint.
+The app itself prerenders to six static routes plus client JS, so there is no server on the decision path: matching runs in the browser in well under a millisecond, satisfying the brief's "near-instant for a good demo" constraint. Postgres is used for shared state and realtime fan-out, not for computing matches.
+
+Every device subscribes to the same tables, which is what makes the multi-role demo work across hardware rather than across browser tabs.
+
+### Provisioning
+
+`npm run provision` builds the backend from nothing via the Supabase Management API: it creates the project, waits for the database to become healthy, applies `supabase/migrations/*.sql`, reads the anon key, and writes `.env.local`. It is safe to re-run — an existing project is adopted and an applied schema is skipped. The database seeds itself on first load, and because every seed id is deterministic, two browsers racing to seed an empty database write the same rows instead of duplicating the network.
 
 ---
 
@@ -291,8 +323,8 @@ There is no backend to deploy. The whole app prerenders to static routes plus cl
 | **Reliability** — a failed match wastes the food | Failures are explicit states (`unmatched`, `expired`) surfaced in the control room with reasons, never silent. |
 | **Cost / latency** — matching must be near-instant | Pure in-browser computation over the candidate set; no network round trip on the decision path. |
 | **Accessibility** — usable by non-technical staff | Donors type one plain sentence; the parser does the structuring. Recipient and driver views are single-action screens. |
-| **Privacy** — handle location and contact data responsibly | No personal contact data is collected; participants are organisations with approximate coordinates. No third-party analytics, and map tiles are the only external request. |
-| **Scalability** — extend beyond one city | No logic is hardcoded to a city. All thresholds live in `constants.ts`; the candidate scan is the only piece that would need a geospatial index at scale, and it sits behind one function. |
+| **Privacy** — handle location and contact data responsibly | Participants are organisations with approximate coordinates; no personal contact data is collected. Row Level Security is enabled on every table, and the demo's permissive `anon` policies are the single place that would tighten under real auth. No third-party analytics; map tiles are the only external request. |
+| **Scalability** — extend beyond one city | No logic is hardcoded to a city, and all thresholds live in `constants.ts`. The candidate scan is the one piece that would need a geospatial index at scale: swap the lat/lng columns for PostGIS `geography` with a GiST index and filter the radius in SQL. It sits behind one function. |
 | **Ethical** — don't discourage small donors | No minimum quantity, and a single-sentence post is the entire donor workload. |
 
 ---

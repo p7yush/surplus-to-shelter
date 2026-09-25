@@ -66,7 +66,7 @@ Because the gates run first, a nearby shelter can lose to a farther one — and 
 
 **Impact dashboard** — Meals rescued, weight diverted, CO₂e avoided, median time from posting to delivery, seven-day trend and food-type split, all derived from actual timestamped handovers.
 
-**Live across tabs** — Every mutation is broadcast over `BroadcastChannel`, so a donor window, a shelter window and a driver window update each other in real time. Open three windows side by side to demo the whole loop.
+**Live across devices** — State lives in Postgres and every browser subscribes to Supabase Realtime, so a donor on a laptop, a shelter on a phone and a driver on a tablet update each other within a few hundred milliseconds. Open the link on two devices and post a donation on one to demo the whole loop.
 
 ## Impact accounting
 
@@ -77,12 +77,19 @@ Because the gates run first, a nearby shelter can lose to a farther one — and 
 | Water footprint | 1,250 L per kg |
 | Safety buffer | 30 minutes |
 
+## Architecture
+
+Full diagrams and design rationale are in **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)**.
+
+The short version: all decision logic is pure and I/O-free, the five role views never compute anything themselves, and storage sits behind a single `DataAdapter` interface. Postgres was added without changing one store action, domain function or component — the adapter compares each new state snapshot against the previous one and writes only the rows whose object reference changed.
+
 ## Tech stack
 
 - **Next.js 16** (App Router) with **React 19** and **TypeScript**
 - **Tailwind CSS 4** for styling
+- **Supabase** — Postgres for shared state, Realtime for cross-device sync, RLS on every table
 - **Leaflet** + OpenStreetMap tiles for mapping (no API key required)
-- **Zustand** for state, persisted to `localStorage` and synced across tabs
+- **Zustand** for state, behind a swappable persistence adapter
 - **Vitest** for unit tests
 
 ## Running locally
@@ -92,7 +99,17 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000). That works immediately with **no backend and no configuration** — with no Supabase credentials present the app falls back to `localStorage` plus `BroadcastChannel`, syncing across tabs in one browser.
+
+To run it on a real database instead, provision one in a single command:
+
+```bash
+SUPABASE_ACCESS_TOKEN=sbp_... npm run provision
+```
+
+That creates the Supabase project, applies `supabase/migrations/*.sql`, reads the anon key and writes `.env.local`. It is safe to re-run. The database seeds itself on first load, and because every seed id is deterministic, two browsers racing to seed an empty database write the same rows instead of duplicating the network.
+
+The header badge shows which backend is in use: **Live** for Postgres, **Local** for the fallback.
 
 | Command | Purpose |
 | --- | --- |
@@ -100,6 +117,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | `npm run build` | Production build |
 | `npm test` | Run the unit test suite |
 | `npm run lint` | Lint |
+| `npm run provision` | Create/repair the Supabase backend |
 
 ## Tests
 
@@ -112,20 +130,29 @@ The domain logic is pure and covered by unit tests, including the cases that mat
 - A pickup is always visited before its matching drop-off.
 - The optimised route is never longer than handling donations one at a time.
 - The parser does not read "ice" out of "rice", or "oil" out of "boiled".
+- Every seed row satisfies the database's own CHECK constraints, enums and foreign keys, so the schema and the seed cannot drift apart.
+- The persistence diff reports only genuinely changed rows, and never loses a deletion.
+- Row mappers round-trip every record unchanged, including `bigint` columns that Postgres returns as strings.
 
 ```bash
 npm test
 ```
 
+73 tests, no network or database required.
+
 ## Project structure
 
 ```
-app/                 Routes: impact dashboard, donor, recipient, driver, control room
-components/          UI primitives, map, charts, donation card, match explainer
-lib/domain/          Pure logic: matching, routing, expiry, parsing, impact, geo, time
-lib/data/seed.ts     Deterministic seed network (Noida / Delhi NCR)
-lib/store/           Zustand store with persistence and cross-tab sync
-tests/               Vitest suites
+app/                    Routes: impact dashboard, donor, recipient, driver, control room
+components/             UI primitives, map, charts, donation card, match explainer
+lib/domain/             Pure logic: matching, routing, expiry, parsing, impact, geo, time
+lib/data/               Storage seam: adapter interface, Supabase + localStorage adapters,
+                        row mappers, deterministic seed network (Noida / Delhi NCR)
+lib/store/              Zustand store wired to the adapter
+supabase/migrations/    Postgres schema: enums, constraints, indexes, RLS, realtime
+scripts/                One-command Supabase provisioning
+docs/ARCHITECTURE.md    Diagrams and design rationale
+tests/                  Vitest suites
 ```
 
 ## Where the seams are
@@ -133,7 +160,8 @@ tests/               Vitest suites
 This is a hackathon build, and the shortcuts are deliberate and isolated rather than spread through the code:
 
 - **Travel times** are modelled as straight-line distance × 1.35 winding factor at a per-vehicle urban speed. Every ETA in the app flows through one `travelMinutes` function, so swapping in a live routing API is a single-module change.
-- **Persistence** is `localStorage` behind the store's action surface. Moving to Postgres means reimplementing that one module, not touching the engine or the UI.
+- **There is no authentication.** A judge opens the link and immediately acts as donor, shelter and driver, which is the point of the demo. RLS is enabled on every table, but the policies grant the `anon` role read and write. The tables hold synthetic organisations and no personal data. Adding Supabase Auth means replacing `true` with ownership predicates in one migration — no application code would change, because all writes already go through one adapter.
 - **Notifications** are in-app. Real SMS or push would slot in at the same place notifications are created.
+- **Distance filtering happens in the client** over a city-sized network. At national scale the lat/lng columns become PostGIS `geography` with a GiST index and the radius filter moves into SQL.
 
 The matching engine, route optimiser, parser and impact maths are all pure functions with no I/O, so none of the above affects them.

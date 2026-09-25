@@ -145,6 +145,97 @@ describe("row mappers", () => {
     expect(mapped.createdAt).toBe(donation.createdAt);
   });
 
+  // These mirror the CHECK constraints, enums and foreign keys in
+  // supabase/migrations/0001_init.sql. Without them a mismatch between the schema and the
+  // domain only shows up as a failed insert against a live database — which is exactly how the
+  // open_minute/open_hour unit mismatch was found.
+  describe("seed rows satisfy the database constraints", () => {
+    const FOOD_TYPES = ["prepared", "produce", "bakery", "dairy", "packaged", "meat"];
+    const VEHICLES = ["bike", "car", "van"];
+    const DONOR_KINDS = ["restaurant", "grocer", "caterer", "campus", "bakery"];
+    const STATUSES = [
+      "posted", "matched", "accepted", "assigned",
+      "picked_up", "delivered", "expired", "unmatched",
+    ];
+
+    it("shelters keep intake minutes inside a day and open before they close", () => {
+      for (const row of seed.shelters.map(fromShelter)) {
+        expect(row.open_minute, row.id).toBeGreaterThanOrEqual(0);
+        expect(row.open_minute, row.id).toBeLessThanOrEqual(1440);
+        expect(row.close_minute, row.id).toBeLessThanOrEqual(1440);
+        expect(row.close_minute, row.id).toBeGreaterThan(row.open_minute);
+      }
+    });
+
+    it("shelters report positive capacity and non-negative usage", () => {
+      for (const row of seed.shelters.map(fromShelter)) {
+        expect(row.daily_capacity_kg, row.id).toBeGreaterThan(0);
+        expect(row.capacity_used_kg, row.id).toBeGreaterThanOrEqual(0);
+      }
+    });
+
+    it("drivers report positive vehicle capacity", () => {
+      for (const row of seed.drivers.map(fromDriver)) {
+        expect(row.capacity_kg, row.id).toBeGreaterThan(0);
+      }
+    });
+
+    it("donations carry a positive quantity and expire after they are ready", () => {
+      for (const row of seed.donations.map(fromDonation)) {
+        expect(row.quantity_kg, row.id).toBeGreaterThan(0);
+        expect(row.expires_at, row.id).toBeGreaterThan(row.ready_at);
+      }
+    });
+
+    it("only uses values the database enums allow", () => {
+      for (const row of seed.donors.map(fromDonor)) {
+        expect(DONOR_KINDS, row.id).toContain(row.kind);
+      }
+      for (const row of seed.drivers.map(fromDriver)) {
+        expect(VEHICLES, row.id).toContain(row.vehicle);
+      }
+      for (const row of seed.shelters.map(fromShelter)) {
+        for (const food of [...row.accepted_food_types, ...row.preferred_food_types]) {
+          expect(FOOD_TYPES, row.id).toContain(food);
+        }
+      }
+      for (const row of seed.donations.map(fromDonation)) {
+        expect(FOOD_TYPES, row.id).toContain(row.food_type);
+        expect(STATUSES, row.id).toContain(row.status);
+      }
+    });
+
+    it("never references a participant that does not exist", () => {
+      const donorIds = new Set(seed.donors.map((d) => d.id));
+      const shelterIds = new Set(seed.shelters.map((s) => s.id));
+      const driverIds = new Set(seed.drivers.map((d) => d.id));
+
+      for (const donation of seed.donations) {
+        expect(donorIds.has(donation.donorId), donation.id).toBe(true);
+        if (donation.shelterId !== null) {
+          expect(shelterIds.has(donation.shelterId), donation.id).toBe(true);
+        }
+        if (donation.driverId !== null) {
+          expect(driverIds.has(donation.driverId), donation.id).toBe(true);
+        }
+        for (const declined of donation.declinedShelterIds) {
+          expect(shelterIds.has(declined), donation.id).toBe(true);
+        }
+      }
+    });
+
+    it("gives every row a non-empty primary key", () => {
+      const ids = [
+        ...seed.donors.map((r) => r.id),
+        ...seed.shelters.map((r) => r.id),
+        ...seed.drivers.map((r) => r.id),
+        ...seed.donations.map((r) => r.id),
+      ];
+      for (const id of ids) expect(id.length).toBeGreaterThan(0);
+      expect(new Set(ids).size).toBe(ids.length);
+    });
+  });
+
   it("defaults absent array columns rather than producing undefined", () => {
     const [shelter] = seed.shelters;
     const row = fromShelter(shelter);

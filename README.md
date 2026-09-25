@@ -4,6 +4,10 @@
 
 Built for **AmiHacks — Track A (NGO / Social Impact)**: _Surplus-to-Shelter: Real-Time Food Rescue Routing_.
 
+**Live demo: [surplus-to-shelter-pi.vercel.app](https://surplus-to-shelter-pi.vercel.app)**
+
+> Demo tip: open the **Donor**, **Recipient** and **Driver** pages in three browser windows side by side. Post surplus in one and watch the other two update live. Use **+30m** in the header to fast-forward the clock and watch safe windows close.
+
 ---
 
 ## The problem

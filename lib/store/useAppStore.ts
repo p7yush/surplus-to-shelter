@@ -1,6 +1,13 @@
 "use client";
 
-import { create } from "zustand";
+import { create, type StoreApi } from "zustand";
+import { createAdapter } from "@/lib/data";
+import {
+  upsertById,
+  type ConnectionStatus,
+  type DataAdapter,
+  type RemoteEvent,
+} from "@/lib/data/adapter";
 import { createSeedData } from "@/lib/data/seed";
 import { suggestedExpiry } from "@/lib/domain/expiry";
 import { findMatches, type MatchResult } from "@/lib/domain/matching";
@@ -10,13 +17,12 @@ import type {
   AppNotification,
   Donation,
   DonationStatus,
+  Donor,
+  Driver,
   FoodType,
   Role,
   Shelter,
 } from "@/lib/domain/types";
-
-const STORAGE_KEY = "surplus-to-shelter:state:v1";
-const CHANNEL_NAME = "surplus-to-shelter:sync";
 
 export interface NewDonationInput {
   donorId: string;
@@ -30,12 +36,14 @@ export interface NewDonationInput {
 
 interface AppState extends AppData {
   hydrated: boolean;
+  backend: DataAdapter["kind"];
+  connection: ConnectionStatus;
   role: Role;
   activeDonorId: string;
   activeShelterId: string;
   activeDriverId: string;
   now: () => number;
-  hydrate: () => void;
+  hydrate: () => Promise<void>;
   setRole: (role: Role) => void;
   setActiveDonor: (id: string) => void;
   setActiveShelter: (id: string) => void;
@@ -57,7 +65,11 @@ interface AppState extends AppData {
   candidatesFor: (donationId: string) => MatchResult | null;
 }
 
-let channel: BroadcastChannel | null = null;
+let adapter: DataAdapter | null = null;
+let unsubscribe: (() => void) | null = null;
+
+// Remote events must not be written straight back to the backend, or two connected browsers
+// would bounce the same row between each other forever.
 let applyingRemote = false;
 
 function dataOf(state: AppState): AppData {
@@ -72,12 +84,67 @@ function dataOf(state: AppState): AppData {
 }
 
 function persist(data: AppData) {
-  if (typeof window === "undefined" || applyingRemote) return;
+  if (applyingRemote) return;
+  adapter?.persist(data);
+}
+
+type SetState = StoreApi<AppState>["setState"];
+
+function applyRemote(set: SetState, event: RemoteEvent) {
+  applyingRemote = true;
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    channel?.postMessage(data);
-  } catch {
-    /* storage unavailable */
+    switch (event.type) {
+      case "snapshot":
+        set({ ...event.data });
+        break;
+
+      case "clock":
+        set({ clockOffsetMs: event.clockOffsetMs });
+        break;
+
+      case "upsert":
+        set((state) => {
+          switch (event.table) {
+            case "donors":
+              return { donors: upsertById(state.donors, event.row as Donor) };
+            case "shelters":
+              return { shelters: upsertById(state.shelters, event.row as Shelter) };
+            case "drivers":
+              return { drivers: upsertById(state.drivers, event.row as Driver) };
+            case "donations":
+              return { donations: upsertById(state.donations, event.row as Donation) };
+            case "notifications":
+              return {
+                notifications: upsertById(
+                  state.notifications,
+                  event.row as AppNotification,
+                ).slice(0, 60),
+              };
+          }
+        });
+        break;
+
+      case "delete":
+        set((state) => {
+          const without = <T extends { id: string }>(rows: T[]) =>
+            rows.filter((row) => row.id !== event.id);
+          switch (event.table) {
+            case "donors":
+              return { donors: without(state.donors) };
+            case "shelters":
+              return { shelters: without(state.shelters) };
+            case "drivers":
+              return { drivers: without(state.drivers) };
+            case "donations":
+              return { donations: without(state.donations) };
+            case "notifications":
+              return { notifications: without(state.notifications) };
+          }
+        });
+        break;
+    }
+  } finally {
+    applyingRemote = false;
   }
 }
 
@@ -109,6 +176,8 @@ function advance(
 export const useAppStore = create<AppState>((set, get) => ({
   ...createSeedData(Date.now()),
   hydrated: false,
+  backend: "local",
+  connection: "local",
   role: "donor",
   activeDonorId: "donor-spice-route",
   activeShelterId: "shelter-seva",
@@ -116,29 +185,38 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   now: () => Date.now() + get().clockOffsetMs,
 
-  hydrate: () => {
-    if (typeof window === "undefined" || get().hydrated) return;
+  hydrate: async () => {
+    if (typeof window === "undefined" || adapter) return;
+
+    adapter = createAdapter();
+    set({ backend: adapter.kind });
 
     let data: AppData | null = null;
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) data = JSON.parse(raw) as AppData;
-    } catch {
-      data = null;
+      data = await adapter.load();
+    } catch (error) {
+      console.error("[store] load failed, falling back to seed data", error);
+      set({ connection: "error" });
     }
 
-    const next = data ?? createSeedData(Date.now());
-    set({ ...next, hydrated: true });
-    if (!data) persist(next);
-
-    if (!channel && "BroadcastChannel" in window) {
-      channel = new BroadcastChannel(CHANNEL_NAME);
-      channel.onmessage = (event: MessageEvent<AppData>) => {
-        applyingRemote = true;
-        set({ ...event.data });
-        applyingRemote = false;
-      };
+    if (data) {
+      set({ ...data, hydrated: true });
+    } else {
+      // Nothing stored yet. Seed ids are deterministic, so if two browsers race to seed an
+      // empty database they write the same rows rather than duplicating the network.
+      const seeded = createSeedData(Date.now());
+      set({ ...seeded, hydrated: true });
+      await adapter.reset(seeded).catch((error) => {
+        console.error("[store] seeding failed", error);
+        set({ connection: "error" });
+      });
     }
+
+    unsubscribe?.();
+    unsubscribe = adapter.subscribe(
+      (event) => applyRemote(set, event),
+      (connection) => set({ connection }),
+    );
   },
 
   setRole: (role) => set({ role }),
@@ -496,7 +574,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   resetDemo: () => {
     const fresh = createSeedData(Date.now());
     set({ ...fresh });
-    persist(fresh);
+    void adapter?.reset(fresh).catch((error) => {
+      console.error("[store] reset failed", error);
+      set({ connection: "error" });
+    });
   },
 
   candidatesFor: (donationId) => {

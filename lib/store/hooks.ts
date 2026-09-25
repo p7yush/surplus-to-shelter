@@ -8,7 +8,7 @@ export function useHydratedStore(): boolean {
   const hydrated = useAppStore((state) => state.hydrated);
 
   useEffect(() => {
-    hydrate();
+    void hydrate();
   }, [hydrate]);
 
   return hydrated;

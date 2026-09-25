@@ -141,6 +141,30 @@ function DemoClock() {
   );
 }
 
+function BackendBadge() {
+  const backend = useAppStore((state) => state.backend);
+  const connection = useAppStore((state) => state.connection);
+
+  const state =
+    backend === "local"
+      ? { dot: "bg-muted", label: "Local", title: "Running on localStorage, synced across tabs in this browser" }
+      : connection === "live"
+        ? { dot: "bg-brand animate-pulse", label: "Live", title: "Connected to Postgres, syncing across devices in real time" }
+        : connection === "error"
+          ? { dot: "bg-rose-accent", label: "Offline", title: "Lost the realtime connection, changes may not be saved" }
+          : { dot: "bg-amber-accent animate-pulse", label: "Syncing", title: "Connecting to the realtime database" };
+
+  return (
+    <span
+      className="hidden items-center gap-1.5 rounded-lg border border-line px-2 py-1.5 text-[0.7rem] font-semibold text-muted sm:flex"
+      title={state.title}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${state.dot}`} />
+      {state.label}
+    </span>
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const hydrated = useHydratedStore();
@@ -190,6 +214,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
+            {hydrated ? <BackendBadge /> : null}
             {hydrated ? <DemoClock /> : null}
             <NotificationBell />
           </div>
